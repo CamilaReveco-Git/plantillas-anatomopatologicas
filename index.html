@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plantillas Anatomopatológicas</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button type="button" class="back-link" id="back-organs" hidden>← Órganos</button>
+      <span class="app-name">PLANTILLAS ANATOMOPATOLÓGICAS</span>
+      <div class="search" id="search-wrap" hidden>
+        <input type="search" id="search" placeholder="Buscar plantilla…" autocomplete="off" aria-label="Buscar plantilla">
+        <ul class="search-results" id="search-results" role="listbox" hidden></ul>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" class="page"></main>
+
+  <!-- Datos: registro de órganos + un archivo por órgano -->
+  <script src="data/organs.js"></script>
+  <script src="data/vesicula.js"></script>
+  <script src="data/estomago.js"></script>
+  <script src="data/apendice.js"></script>
+  <!-- Lógica -->
+  <script src="js/assembler.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

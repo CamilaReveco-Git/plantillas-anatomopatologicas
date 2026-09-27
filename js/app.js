@@ -1,0 +1,462 @@
+/*
+ * INTERFAZ
+ * Navegación: Órganos → Categoría → Variante (si hay) → Opciones → Resultado.
+ * No contiene textos médicos: todo sale de data/*.js y de Assembler.
+ */
+(function () {
+  var organs = PLANTILLAS.organs;
+  var app = document.getElementById("app");
+  var backBtn = document.getElementById("back-organs");
+  var searchWrap = document.getElementById("search-wrap");
+  var searchInput = document.getElementById("search");
+  var searchResults = document.getElementById("search-results");
+
+  var state = null; // estado del caso actual (null en pantalla de órganos)
+  var ui = {}; // referencias a contenedores de la pantalla de órgano
+
+  function newState(organ) {
+    return {
+      organ: organ,
+      catId: null,
+      templateId: null,
+      mods: [],
+      values: {},
+      generated: null, // último texto ensamblado {micro, diagnostico}
+    };
+  }
+
+  // ---------- utilidades DOM ----------
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        var v = attrs[k];
+        if (v == null || v === false) return;
+        if (k === "class") node.className = v;
+        else if (k === "text") node.textContent = v;
+        else if (k === "style") node.style.cssText = v;
+        else if (k.slice(0, 2) === "on") node.addEventListener(k.slice(2), v);
+        else node.setAttribute(k, v === true ? "" : v);
+      });
+    }
+    (children || []).forEach(function (c) {
+      if (c) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return node;
+  }
+
+  function card(opts) {
+    var classes = "card" + (opts.small ? " card--small" : "") + (opts.selected ? " is-selected" : "");
+    return el("button", {
+      type: "button",
+      class: classes,
+      style: opts.tone ? "--tone:" + opts.tone : null,
+      "aria-pressed": opts.selected ? "true" : "false",
+      onclick: opts.onClick,
+    }, [
+      el("span", { class: "card-check", "aria-hidden": "true", text: "✓" }),
+      el("span", { class: "card-label", text: opts.label }),
+      opts.hint ? el("span", { class: "card-hint", text: opts.hint }) : null,
+    ]);
+  }
+
+  function applyTheme(theme) {
+    var s = document.documentElement.style;
+    if (!theme) {
+      ["--accent", "--accent-soft", "--ink", "--chip-line", "--options-line"].forEach(function (p) { s.removeProperty(p); });
+      return;
+    }
+    s.setProperty("--accent", theme.accent);
+    s.setProperty("--accent-soft", theme.accentSoft);
+    s.setProperty("--ink", theme.ink);
+    // Opcionales: si el órgano no los define, se usan los valores por defecto del CSS.
+    if (theme.chipLine) s.setProperty("--chip-line", theme.chipLine); else s.removeProperty("--chip-line");
+    if (theme.optionsLine) s.setProperty("--options-line", theme.optionsLine); else s.removeProperty("--options-line");
+  }
+
+  // Una categoría muestra el paso de variante si tiene varias plantillas
+  // o si los datos lo piden (showVariants), p. ej. para recibir más tipos después.
+  function hasVariants(cat) {
+    return !!cat.showVariants || cat.templates.length > 1;
+  }
+
+  function plural(n, one, many) {
+    return n + " " + (n === 1 ? one : many);
+  }
+
+  // ---------- routing ----------
+  function route() {
+    var id = location.hash.replace(/^#\/?/, "");
+    var organ = organs.filter(function (o) { return o.id === id; })[0];
+    if (organ) showOrgan(organ);
+    else showOrgans();
+  }
+
+  // ---------- pantalla 1: órganos ----------
+  function showOrgans() {
+    state = null;
+    applyTheme(null);
+    backBtn.hidden = true;
+    searchWrap.hidden = true;
+    app.innerHTML = "";
+    app.appendChild(el("h1", { class: "screen-title", text: "Seleccione un órgano" }));
+    var grid = el("div", { class: "grid" });
+    organs.forEach(function (o) {
+      grid.appendChild(card({
+        label: o.nombre,
+        hint: plural(o.categorias.length, "categoría", "categorías"),
+        tone: o.theme.tones[0],
+        onClick: function () { location.hash = "#/" + o.id; },
+      }));
+    });
+    app.appendChild(grid);
+  }
+
+  // ---------- pantalla 2: órgano ----------
+  function showOrgan(organ) {
+    state = newState(organ);
+    applyTheme(organ.theme);
+    backBtn.hidden = false;
+    searchWrap.hidden = false;
+    searchInput.value = "";
+    closeSearch();
+
+    app.innerHTML = "";
+    ui.crumbs = el("nav", { class: "crumbs", "aria-label": "Ruta" });
+    ui.grid = el("div", { class: "grid" });
+    ui.variants = el("section", { class: "tray", hidden: true });
+    ui.options = el("section", { class: "tray tray--options", hidden: true });
+    ui.result = el("section", { class: "result", hidden: true });
+    [ui.crumbs, ui.grid, ui.variants, ui.options, ui.result].forEach(function (n) { app.appendChild(n); });
+    buildResult();
+    renderAll();
+  }
+
+  function currentCat() {
+    return state.organ.categorias.filter(function (c) { return c.id === state.catId; })[0];
+  }
+  function currentTemplate() {
+    return state.templateId ? state.organ.templates[state.templateId] : null;
+  }
+
+  function renderAll() {
+    renderCrumbs();
+    renderGrid();
+    renderVariants();
+    renderOptions();
+    refreshResult(true);
+  }
+
+  function renderCrumbs() {
+    var parts = [state.organ.nombre];
+    var cat = currentCat();
+    var t = currentTemplate();
+    if (cat) parts.push(cat.label);
+    if (cat && hasVariants(cat) && t) parts.push(t.variantLabel || t.titulo);
+    if (t) {
+      (t.modifiers || []).forEach(function (m) {
+        if (state.mods.indexOf(m.id) !== -1) parts.push("+ " + m.label);
+      });
+    }
+    ui.crumbs.innerHTML = "";
+    parts.forEach(function (p, i) {
+      if (i) ui.crumbs.appendChild(el("span", { class: "crumb-sep", "aria-hidden": "true", text: "›" }));
+      ui.crumbs.appendChild(el("span", { class: "crumb" + (i === parts.length - 1 ? " is-current" : ""), text: p }));
+    });
+  }
+
+  function renderGrid() {
+    var tones = state.organ.theme.tones;
+    ui.grid.innerHTML = "";
+    state.organ.categorias.forEach(function (cat, i) {
+      var n = cat.templates.length;
+      ui.grid.appendChild(card({
+        label: cat.label,
+        hint: hasVariants(cat) ? plural(n, "variante", "variantes") + " ▾" : null,
+        tone: tones[i % tones.length],
+        selected: cat.id === state.catId,
+        onClick: function () { selectCategory(cat.id); },
+      }));
+    });
+  }
+
+  function renderVariants() {
+    var cat = currentCat();
+    ui.variants.innerHTML = "";
+    if (!cat || !hasVariants(cat)) { ui.variants.hidden = true; return; }
+    ui.variants.hidden = false;
+    ui.variants.appendChild(el("h2", { class: "tray-title" }, [
+      el("span", { text: cat.label }),
+      el("span", { class: "tray-sub", text: state.templateId ? "variante" : "seleccione variante" }),
+    ]));
+    var row = el("div", { class: "grid grid--variants" });
+    var catIndex = state.organ.categorias.indexOf(cat);
+    var tone = state.organ.theme.tones[catIndex % state.organ.theme.tones.length];
+    cat.templates.forEach(function (tid) {
+      var t = state.organ.templates[tid];
+      row.appendChild(card({
+        small: true,
+        label: t.variantLabel || t.titulo,
+        hint: excerpt(t.micro),
+        tone: tone,
+        selected: tid === state.templateId,
+        onClick: function () { selectTemplate(tid); },
+      }));
+    });
+    ui.variants.appendChild(row);
+  }
+
+  function excerpt(text) {
+    return text.length > 90 ? text.slice(0, 90).replace(/\s+\S*$/, "") + "…" : text;
+  }
+
+  function renderOptions() {
+    var t = currentTemplate();
+    ui.options.innerHTML = "";
+    var mods = t ? t.modifiers || [] : [];
+    var fields = t ? (t.fields || []).slice() : [];
+    if (!t || (!mods.length && !fields.length)) { ui.options.hidden = true; return; }
+    ui.options.hidden = false;
+
+    if (mods.length) {
+      ui.options.appendChild(el("h2", { class: "tray-title", text: "Opciones" }));
+      var chips = el("div", { class: "chips" });
+      mods.forEach(function (m) {
+        var on = state.mods.indexOf(m.id) !== -1;
+        chips.appendChild(el("button", {
+          type: "button",
+          class: "chip" + (on ? " is-on" : ""),
+          "aria-pressed": on ? "true" : "false",
+          onclick: function () { toggleModifier(m.id); },
+        }, [
+          el("span", { class: "chip-box", "aria-hidden": "true", text: on ? "✓" : "+" }),
+          el("span", { text: m.label }),
+        ]));
+        if (on && m.fields) fields = fields.concat(m.fields);
+      });
+      ui.options.appendChild(chips);
+    }
+
+    if (fields.length) {
+      var box = el("div", { class: "fields" });
+      fields.forEach(function (f) {
+        var input = el("input", {
+          type: "text",
+          id: "f-" + f.id,
+          autocomplete: "off",
+          spellcheck: "false",
+          oninput: function (e) {
+            state.values[f.id] = e.target.value;
+            refreshResult(false);
+          },
+        });
+        input.value = state.values[f.id] || "";
+        box.appendChild(el("label", { class: "field", for: "f-" + f.id }, [
+          el("span", { class: "field-label", text: f.label }),
+          input,
+        ]));
+      });
+      ui.options.appendChild(box);
+    }
+  }
+
+  // ---------- resultado ----------
+  function buildResult() {
+    ui.resultTitle = el("h2", { class: "result-title" });
+    ui.micro = el("textarea", { id: "out-micro", class: "out", spellcheck: "false", rows: "3" });
+    ui.dx = el("textarea", { id: "out-dx", class: "out out--dx", spellcheck: "false", rows: "3" });
+    ui.notice = el("p", { class: "notice", role: "status", "aria-live": "polite" });
+    ui.copyBtn = el("button", { type: "button", class: "btn btn--primary", onclick: copyAll, text: "Copiar todo" });
+    var resetBtn = el("button", { type: "button", class: "btn", onclick: newCase, text: "Nuevo caso" });
+    [ui.micro, ui.dx].forEach(function (ta) { ta.addEventListener("input", function () { autosize(ta); }); });
+
+    ui.result.appendChild(ui.resultTitle);
+    ui.result.appendChild(el("label", { class: "out-label", for: "out-micro", text: "Micro" }));
+    ui.result.appendChild(ui.micro);
+    ui.result.appendChild(el("label", { class: "out-label", for: "out-dx", text: "Diagnóstico" }));
+    ui.result.appendChild(ui.dx);
+    ui.result.appendChild(el("div", { class: "actions" }, [ui.copyBtn, resetBtn, ui.notice]));
+  }
+
+  // Reconstruye el resultado desde los datos maestros.
+  // force=true: nueva plantilla/caso → descarta ediciones manuales.
+  // force=false: solo reemplaza el cuadro cuyo texto ensamblado cambió
+  //              (así escribir una medida no borra ediciones hechas en la micro).
+  function refreshResult(force) {
+    var t = currentTemplate();
+    if (!t) {
+      ui.result.hidden = true;
+      ui.micro.value = ui.dx.value = "";
+      state.generated = null;
+      return;
+    }
+    var wasHidden = ui.result.hidden;
+    ui.result.hidden = false;
+    ui.resultTitle.textContent = t.titulo;
+
+    var out = Assembler.assemble(t, state.mods, state.values);
+    var prev = state.generated;
+    var lost = [];
+    [["micro", ui.micro, "Micro"], ["diagnostico", ui.dx, "Diagnóstico"]].forEach(function (x) {
+      var key = x[0], ta = x[1];
+      if (force || !prev || prev[key] !== out[key]) {
+        if (!force && prev && ta.value !== prev[key]) lost.push(x[2]);
+        ta.value = out[key];
+      }
+      ta.classList.toggle("has-blank", ta.value.indexOf(Assembler.EMPTY) !== -1);
+    });
+    state.generated = out;
+    autosize(ui.micro);
+    autosize(ui.dx);
+    showNotice(lost.length ? lost.join(" y ") + " reconstruido desde la plantilla (se descartó la edición manual)." : "");
+
+    if (wasHidden) ui.result.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function autosize(ta) {
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + 2 + "px";
+  }
+
+  var noticeTimer;
+  function showNotice(msg) {
+    clearTimeout(noticeTimer);
+    ui.notice.textContent = msg;
+    if (msg) noticeTimer = setTimeout(function () { ui.notice.textContent = ""; }, 5000);
+  }
+
+  // ---------- acciones ----------
+  function selectCategory(catId) {
+    var cat = state.organ.categorias.filter(function (c) { return c.id === catId; })[0];
+    state.catId = catId;
+    state.templateId = hasVariants(cat) ? null : cat.templates[0];
+    state.mods = [];
+    state.values = {};
+    renderAll();
+  }
+
+  function selectTemplate(tid) {
+    state.templateId = tid;
+    state.mods = [];
+    state.values = {};
+    renderAll();
+  }
+
+  function toggleModifier(id) {
+    var i = state.mods.indexOf(id);
+    if (i === -1) state.mods.push(id);
+    else state.mods.splice(i, 1);
+    renderCrumbs();
+    renderOptions();
+    refreshResult(false);
+    // Al activar una opción con campos, dejar el cursor en el primero.
+    var t = currentTemplate();
+    var m = (t.modifiers || []).filter(function (x) { return x.id === id; })[0];
+    if (i === -1 && m && m.fields) document.getElementById("f-" + m.fields[0].id).focus();
+  }
+
+  function newCase() {
+    state = newState(state.organ);
+    searchInput.value = "";
+    closeSearch();
+    renderAll();
+    window.scrollTo({ top: 0 });
+  }
+
+  function copyAll() {
+    var text = Assembler.joinForCopy(ui.micro.value, ui.dx.value);
+    var done = function () {
+      ui.copyBtn.textContent = "Copiado ✓";
+      ui.copyBtn.classList.add("is-done");
+      setTimeout(function () {
+        ui.copyBtn.textContent = "Copiar todo";
+        ui.copyBtn.classList.remove("is-done");
+      }, 1500);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text) && done(); });
+    } else if (fallbackCopy(text)) {
+      done();
+    }
+  }
+
+  function fallbackCopy(text) {
+    var ta = el("textarea", { style: "position:fixed;left:-9999px;top:0" });
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (!ok) showNotice("No se pudo copiar automáticamente. Seleccione el texto y use Ctrl/Cmd + C.");
+    return ok;
+  }
+
+  // ---------- buscador ----------
+  var hits = [];
+  var active = -1;
+
+  function closeSearch() {
+    searchResults.hidden = true;
+    searchResults.innerHTML = "";
+    hits = [];
+    active = -1;
+  }
+
+  function renderSearch() {
+    if (!state) return;
+    hits = Search.search(state.organ, searchInput.value).slice(0, 8);
+    active = hits.length ? 0 : -1;
+    searchResults.innerHTML = "";
+    if (!searchInput.value.trim()) { searchResults.hidden = true; return; }
+    searchResults.hidden = false;
+    if (!hits.length) {
+      searchResults.appendChild(el("li", { class: "search-empty", text: "Sin resultados" }));
+      return;
+    }
+    hits.forEach(function (h, i) {
+      searchResults.appendChild(el("li", {
+        role: "option",
+        class: i === active ? "is-active" : null,
+        onmousedown: function (e) { e.preventDefault(); pickHit(i); },
+      }, [
+        el("span", { class: "search-cat", text: h.categoria.label }),
+        el("span", { text: h.titulo }),
+      ]));
+    });
+  }
+
+  function pickHit(i) {
+    var h = hits[i];
+    if (!h) return;
+    state.catId = h.categoria.id;
+    state.templateId = h.templateId;
+    state.mods = [];
+    state.values = {};
+    searchInput.value = "";
+    closeSearch();
+    searchInput.blur();
+    renderAll();
+  }
+
+  searchInput.addEventListener("input", renderSearch);
+  searchInput.addEventListener("blur", function () { setTimeout(closeSearch, 100); });
+  searchInput.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { searchInput.value = ""; closeSearch(); searchInput.blur(); return; }
+    if (!hits.length) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length;
+      Array.prototype.forEach.call(searchResults.children, function (li, i) {
+        li.classList.toggle("is-active", i === active);
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      pickHit(active);
+    }
+  });
+
+  backBtn.addEventListener("click", function () { location.hash = "#/"; });
+  window.addEventListener("hashchange", route);
+  route();
+})();
