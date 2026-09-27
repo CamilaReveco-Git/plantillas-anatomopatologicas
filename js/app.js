@@ -1,6 +1,7 @@
 /*
  * INTERFAZ
  * Navegación: Órganos → Categoría → Variante (si hay) → Opciones → Resultado.
+ * Profundidad libre: los niveles salen del árbol de Tree (js/tree.js).
  * No contiene textos médicos: todo sale de data/*.js y de Assembler.
  */
 (function () {
@@ -17,8 +18,9 @@
   function newState(organ) {
     return {
       organ: organ,
-      catId: null,
-      templateId: null,
+      roots: Tree.build(organ),
+      path: [], // ids de los nodos elegidos, desde la categoría hacia abajo
+      axes: {}, // en nodos combinables: {ejeId: opciónId}
       mods: [],
       values: {},
       generated: null, // último texto ensamblado {micro, diagnostico}
@@ -63,7 +65,7 @@
   function applyTheme(theme) {
     var s = document.documentElement.style;
     if (!theme) {
-      ["--accent", "--accent-soft", "--ink", "--chip-line", "--options-line"].forEach(function (p) { s.removeProperty(p); });
+      ["--accent", "--accent-soft", "--ink", "--chip-line", "--options-line", "--tray-line"].forEach(function (p) { s.removeProperty(p); });
       return;
     }
     s.setProperty("--accent", theme.accent);
@@ -72,12 +74,7 @@
     // Opcionales: si el órgano no los define, se usan los valores por defecto del CSS.
     if (theme.chipLine) s.setProperty("--chip-line", theme.chipLine); else s.removeProperty("--chip-line");
     if (theme.optionsLine) s.setProperty("--options-line", theme.optionsLine); else s.removeProperty("--options-line");
-  }
-
-  // Una categoría muestra el paso de variante si tiene varias plantillas
-  // o si los datos lo piden (showVariants), p. ej. para recibir más tipos después.
-  function hasVariants(cat) {
-    return !!cat.showVariants || cat.templates.length > 1;
+    if (theme.trayLine) s.setProperty("--tray-line", theme.trayLine); else s.removeProperty("--tray-line");
   }
 
   function plural(n, one, many) {
@@ -124,35 +121,47 @@
     app.innerHTML = "";
     ui.crumbs = el("nav", { class: "crumbs", "aria-label": "Ruta" });
     ui.grid = el("div", { class: "grid" });
-    ui.variants = el("section", { class: "tray", hidden: true });
+    ui.levels = el("div", { class: "levels" });
     ui.options = el("section", { class: "tray tray--options", hidden: true });
     ui.result = el("section", { class: "result", hidden: true });
-    [ui.crumbs, ui.grid, ui.variants, ui.options, ui.result].forEach(function (n) { app.appendChild(n); });
+    [ui.crumbs, ui.grid, ui.levels, ui.options, ui.result].forEach(function (n) { app.appendChild(n); });
     buildResult();
     renderAll();
   }
 
-  function currentCat() {
-    return state.organ.categorias.filter(function (c) { return c.id === state.catId; })[0];
+  function pathNodes() {
+    return Tree.resolve(state.roots, state.path);
   }
   function currentTemplate() {
-    return state.templateId ? state.organ.templates[state.templateId] : null;
+    var nodes = pathNodes();
+    return Tree.templateFor(state.organ, nodes[nodes.length - 1], state.axes);
+  }
+
+  // Tono de las tarjetas: el del nodo, el del nivel (theme.levelTones) o el heredado.
+  function toneAt(depth, fallback) {
+    var lt = state.organ.theme.levelTones;
+    return (lt && lt[depth]) || fallback;
   }
 
   function renderAll() {
     renderCrumbs();
     renderGrid();
-    renderVariants();
+    renderLevels();
     renderOptions();
     refreshResult(true);
   }
 
   function renderCrumbs() {
     var parts = [state.organ.nombre];
-    var cat = currentCat();
+    var nodes = pathNodes();
+    nodes.forEach(function (n) { parts.push(n.label); });
+    var last = nodes[nodes.length - 1];
+    if (last && last.kind === "combine") {
+      last.axes.forEach(function (ax) {
+        ax.options.forEach(function (o) { if (state.axes[ax.id] === o.id) parts.push(o.label); });
+      });
+    }
     var t = currentTemplate();
-    if (cat) parts.push(cat.label);
-    if (cat && hasVariants(cat) && t) parts.push(t.variantLabel || t.titulo);
     if (t) {
       (t.modifiers || []).forEach(function (m) {
         if (state.mods.indexOf(m.id) !== -1) parts.push("+ " + m.label);
@@ -168,46 +177,85 @@
   function renderGrid() {
     var tones = state.organ.theme.tones;
     ui.grid.innerHTML = "";
-    state.organ.categorias.forEach(function (cat, i) {
-      var n = cat.templates.length;
+    state.roots.forEach(function (node, i) {
       ui.grid.appendChild(card({
-        label: cat.label,
-        hint: hasVariants(cat) ? plural(n, "variante", "variantes") + " ▾" : null,
-        tone: tones[i % tones.length],
-        selected: cat.id === state.catId,
-        onClick: function () { selectCategory(cat.id); },
+        label: node.label,
+        hint: node.hint,
+        tone: node.tone || tones[i % tones.length],
+        selected: node.id === state.path[0],
+        onClick: function () { selectAt(0, node.id); },
       }));
     });
   }
 
-  function renderVariants() {
-    var cat = currentCat();
-    ui.variants.innerHTML = "";
-    if (!cat || !hasVariants(cat)) { ui.variants.hidden = true; return; }
-    ui.variants.hidden = false;
-    ui.variants.appendChild(el("h2", { class: "tray-title" }, [
-      el("span", { text: cat.label }),
-      el("span", { class: "tray-sub", text: state.templateId ? "variante" : "seleccione variante" }),
-    ]));
-    var row = el("div", { class: "grid grid--variants" });
-    var catIndex = state.organ.categorias.indexOf(cat);
-    var tone = state.organ.theme.tones[catIndex % state.organ.theme.tones.length];
-    cat.templates.forEach(function (tid) {
-      var t = state.organ.templates[tid];
-      row.appendChild(card({
-        small: true,
-        label: t.variantLabel || t.titulo,
-        hint: excerpt(t.micro),
-        tone: tone,
-        selected: tid === state.templateId,
-        onClick: function () { selectTemplate(tid); },
-      }));
+  // Una bandeja por cada nodo elegido que tenga hijos (menú) u opciones (combinable).
+  function renderLevels() {
+    ui.levels.innerHTML = "";
+    var nodes = pathNodes();
+    var tones = state.organ.theme.tones;
+    var inherited = tones[Math.max(0, state.roots.indexOf(nodes[0])) % tones.length];
+    nodes.forEach(function (node, d) {
+      if (node.tone) inherited = node.tone;
+      if (node.kind === "menu") ui.levels.appendChild(menuTray(node, d + 1, toneAt(d + 1, inherited)));
+      else if (node.kind === "combine") ui.levels.appendChild(combineTray(node));
+      inherited = toneAt(d + 1, inherited);
     });
-    ui.variants.appendChild(row);
   }
 
-  function excerpt(text) {
-    return text.length > 90 ? text.slice(0, 90).replace(/\s+\S*$/, "") + "…" : text;
+  function trayTitle(label, sub) {
+    return el("h2", { class: "tray-title" }, [
+      el("span", { text: label }),
+      sub ? el("span", { class: "tray-sub", text: sub }) : null,
+    ]);
+  }
+
+  function menuTray(node, depth, tone) {
+    var picked = state.path[depth];
+    var sub = node.legacy ? (picked ? "variante" : "seleccione variante") : (picked ? null : "seleccione");
+    var tray = el("section", { class: "tray" }, [trayTitle(node.label, sub)]);
+    node.sections.forEach(function (sec) {
+      var box = sec.label ? el("div", { class: "tray-section" }, [
+        el("h3", { class: "section-title", text: sec.label }),
+        sec.hint ? el("p", { class: "section-hint", text: sec.hint }) : null,
+      ]) : tray;
+      var row = el("div", { class: "grid grid--variants" });
+      sec.children.forEach(function (c) {
+        row.appendChild(card({
+          small: true,
+          label: c.label,
+          hint: c.hint,
+          tone: c.tone || tone,
+          selected: c.id === picked,
+          onClick: function () { selectAt(depth, c.id); },
+        }));
+      });
+      box.appendChild(row);
+      if (box !== tray) tray.appendChild(box);
+    });
+    return tray;
+  }
+
+  // Nodo combinable: todos los ejes visibles a la vez; una opción por eje.
+  function combineTray(node) {
+    var done = node.axes.every(function (ax) { return state.axes[ax.id]; });
+    var tray = el("section", { class: "tray tray--combine" }, [
+      trayTitle(node.label, done ? null : "seleccione " + node.axes.map(function (ax) { return ax.label.toLowerCase(); }).join(" y ")),
+    ]);
+    var axisTones = state.organ.theme.axisTones || {};
+    node.axes.forEach(function (ax) {
+      var row = el("div", { class: "grid grid--variants" });
+      ax.options.forEach(function (o) {
+        row.appendChild(card({
+          small: true,
+          label: o.label,
+          tone: axisTones[ax.tone] || null,
+          selected: state.axes[ax.id] === o.id,
+          onClick: function () { selectAxis(ax.id, o.id); },
+        }));
+      });
+      tray.appendChild(el("div", { class: "tray-section" }, [el("h3", { class: "section-title", text: ax.label }), row]));
+    });
+    return tray;
   }
 
   function renderOptions() {
@@ -326,19 +374,17 @@
   }
 
   // ---------- acciones ----------
-  function selectCategory(catId) {
-    var cat = state.organ.categorias.filter(function (c) { return c.id === catId; })[0];
-    state.catId = catId;
-    state.templateId = hasVariants(cat) ? null : cat.templates[0];
+  // Elegir un nodo en el nivel `depth` descarta todo lo elegido por debajo.
+  function selectAt(depth, id) {
+    state.path = state.path.slice(0, depth).concat(id);
+    state.axes = {};
     state.mods = [];
     state.values = {};
     renderAll();
   }
 
-  function selectTemplate(tid) {
-    state.templateId = tid;
-    state.mods = [];
-    state.values = {};
+  function selectAxis(axisId, optionId) {
+    state.axes[axisId] = optionId;
     renderAll();
   }
 
@@ -405,7 +451,7 @@
 
   function renderSearch() {
     if (!state) return;
-    hits = Search.search(state.organ, searchInput.value).slice(0, 8);
+    hits = Search.search(Tree.searchEntries(state.organ, state.roots), searchInput.value).slice(0, 8);
     active = hits.length ? 0 : -1;
     searchResults.innerHTML = "";
     if (!searchInput.value.trim()) { searchResults.hidden = true; return; }
@@ -420,7 +466,7 @@
         class: i === active ? "is-active" : null,
         onmousedown: function (e) { e.preventDefault(); pickHit(i); },
       }, [
-        el("span", { class: "search-cat", text: h.categoria.label }),
+        el("span", { class: "search-cat", text: h.catLabel }),
         el("span", { text: h.titulo }),
       ]));
     });
@@ -429,8 +475,8 @@
   function pickHit(i) {
     var h = hits[i];
     if (!h) return;
-    state.catId = h.categoria.id;
-    state.templateId = h.templateId;
+    state.path = h.path.slice();
+    state.axes = {};
     state.mods = [];
     state.values = {};
     searchInput.value = "";

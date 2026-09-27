@@ -210,7 +210,7 @@ button, input, textarea { font: inherit; color: inherit; }
   padding: 14px 16px 16px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
+  border-left: 4px solid var(--tray-line, var(--accent));
   border-radius: var(--radius);
 }
 .tray-title {
@@ -227,6 +227,19 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .tray-sub { font-weight: 600; color: var(--muted); letter-spacing: .04em; }
 .tray-sub::before { content: "↓ "; }
+
+/* subgrupos dentro de una bandeja (p. ej. Diagnóstico A / B, o Diagnóstico / Micro) */
+.tray-section + .tray-section { margin-top: 16px; }
+.section-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.section-hint { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.section-title + .grid { margin-top: 8px; }
 
 .tray--options { border-left-color: var(--options-line, #8fb3a0); }
 
