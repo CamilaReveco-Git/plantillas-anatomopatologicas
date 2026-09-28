@@ -44,6 +44,11 @@
   // ---- formato de árbol ----
   function fromNode(n) {
     var node = { id: n.id, label: n.label, tone: n.tone || null };
+    // Ayudas visuales opcionales (no forman parte de ninguna plantilla):
+    // lines = líneas pequeñas bajo el nombre · summary = hallazgos comunes del grupo · crumb = nombre en la ruta
+    if (n.lines) node.lines = n.lines;
+    if (n.summary) node.summary = n.summary;
+    if (n.crumb) node.crumb = n.crumb;
     if (n.template) {
       node.kind = "leaf";
       node.template = n.template;

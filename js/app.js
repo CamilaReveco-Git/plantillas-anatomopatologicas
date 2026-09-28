@@ -2,18 +2,23 @@
  * INTERFAZ
  * Navegación: Órganos → Categoría → Variante (si hay) → Opciones → Resultado.
  * Profundidad libre: los niveles salen del árbol de Tree (js/tree.js).
+ * Barra lateral de órganos, cabecera con ilustración (js/icons.js) y buscador global.
  * No contiene textos médicos: todo sale de data/*.js y de Assembler.
  */
 (function () {
   var organs = PLANTILLAS.organs;
   var app = document.getElementById("app");
   var backBtn = document.getElementById("back-organs");
-  var searchWrap = document.getElementById("search-wrap");
+  var sidebarList = document.getElementById("sidebar-list");
+  var menuBtn = document.getElementById("menu-btn");
+  var backdrop = document.getElementById("backdrop");
   var searchInput = document.getElementById("search");
   var searchResults = document.getElementById("search-results");
 
   var state = null; // estado del caso actual (null en pantalla de órganos)
   var ui = {}; // referencias a contenedores de la pantalla de órgano
+  var pendingNav = null; // destino elegido en el buscador, se aplica al abrir el órgano
+  var searchIndex = Search.buildIndex(organs, Tree);
 
   function newState(organ) {
     return {
@@ -58,8 +63,11 @@
     }, [
       el("span", { class: "card-check", "aria-hidden": "true", text: "✓" }),
       el("span", { class: "card-label", text: opts.label }),
+    ].concat((opts.lines || []).map(function (l) {
+      return el("span", { class: "card-line", text: l });
+    })).concat([
       opts.hint ? el("span", { class: "card-hint", text: opts.hint }) : null,
-    ]);
+    ]));
   }
 
   function applyTheme(theme) {
@@ -94,7 +102,9 @@
     state = null;
     applyTheme(null);
     backBtn.hidden = true;
-    searchWrap.hidden = true;
+    searchInput.value = "";
+    closeSearch();
+    renderSidebar(null);
     app.innerHTML = "";
     app.appendChild(el("h1", { class: "screen-title", text: "Seleccione un órgano" }));
     var grid = el("div", { class: "grid" });
@@ -114,11 +124,19 @@
     state = newState(organ);
     applyTheme(organ.theme);
     backBtn.hidden = false;
-    searchWrap.hidden = false;
     searchInput.value = "";
     closeSearch();
+    renderSidebar(organ.id);
+
+    var nav = pendingNav && pendingNav.organId === organ.id ? pendingNav : null;
+    pendingNav = null;
+    if (nav) {
+      state.path = nav.path.slice();
+      state.axes = Object.assign({}, nav.axes);
+    }
 
     app.innerHTML = "";
+    app.appendChild(organHeader(organ));
     ui.crumbs = el("nav", { class: "crumbs", "aria-label": "Ruta" });
     ui.grid = el("div", { class: "grid" });
     ui.levels = el("div", { class: "levels" });
@@ -127,7 +145,48 @@
     [ui.crumbs, ui.grid, ui.levels, ui.options, ui.result].forEach(function (n) { app.appendChild(n); });
     buildResult();
     renderAll();
+    if (nav) revealTarget();
   }
+
+  // Cabecera: ilustración grande + nombre del órgano.
+  function organHeader(organ) {
+    var art = el("span", { class: "organ-art", style: "--tone:" + organ.theme.tones[0] });
+    art.innerHTML = organIcon(organ.id);
+    return el("header", { class: "organ-header" }, [art, el("h1", { class: "organ-name", text: organ.nombre })]);
+  }
+
+  // ---------- barra lateral ----------
+  function renderSidebar(activeId) {
+    sidebarList.innerHTML = "";
+    organs.forEach(function (o) {
+      var icon = el("span", { class: "sidebar-icon" });
+      icon.innerHTML = organIcon(o.id);
+      var active = o.id === activeId;
+      sidebarList.appendChild(el("li", null, [el("button", {
+        type: "button",
+        class: "sidebar-item" + (active ? " is-active" : ""),
+        style: "--tone:" + o.theme.tones[0] + ";--item-accent:" + o.theme.accent,
+        "aria-current": active ? "page" : null,
+        onclick: function () { closeDrawer(); location.hash = "#/" + o.id; },
+      }, [icon, el("span", { class: "sidebar-name", text: o.nombre })])]));
+    });
+  }
+
+  function openDrawer() {
+    document.body.classList.add("drawer-open");
+    backdrop.hidden = false;
+    menuBtn.setAttribute("aria-expanded", "true");
+  }
+  function closeDrawer() {
+    document.body.classList.remove("drawer-open");
+    backdrop.hidden = true;
+    menuBtn.setAttribute("aria-expanded", "false");
+  }
+  menuBtn.addEventListener("click", function () {
+    if (document.body.classList.contains("drawer-open")) closeDrawer(); else openDrawer();
+  });
+  backdrop.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDrawer(); });
 
   function pathNodes() {
     return Tree.resolve(state.roots, state.path);
@@ -154,7 +213,7 @@
   function renderCrumbs() {
     var parts = [state.organ.nombre];
     var nodes = pathNodes();
-    nodes.forEach(function (n) { parts.push(n.label); });
+    nodes.forEach(function (n) { parts.push(n.crumb || n.label); });
     var last = nodes[nodes.length - 1];
     if (last && last.kind === "combine") {
       last.axes.forEach(function (ax) {
@@ -180,6 +239,7 @@
     state.roots.forEach(function (node, i) {
       ui.grid.appendChild(card({
         label: node.label,
+        lines: cardLines(node),
         hint: node.hint,
         tone: node.tone || tones[i % tones.length],
         selected: node.id === state.path[0],
@@ -202,6 +262,11 @@
     });
   }
 
+  // Líneas pequeñas de una tarjeta: las propias o, en un grupo, sus hallazgos comunes.
+  function cardLines(node) {
+    return node.lines || (node.summary ? [node.summary] : null);
+  }
+
   function trayTitle(label, sub) {
     return el("h2", { class: "tray-title" }, [
       el("span", { text: label }),
@@ -213,6 +278,7 @@
     var picked = state.path[depth];
     var sub = node.legacy ? (picked ? "variante" : "seleccione variante") : (picked ? null : "seleccione");
     var tray = el("section", { class: "tray" }, [trayTitle(node.label, sub)]);
+    if (node.summary) tray.appendChild(el("p", { class: "tray-summary", text: node.summary }));
     node.sections.forEach(function (sec) {
       var box = sec.label ? el("div", { class: "tray-section" }, [
         el("h3", { class: "section-title", text: sec.label }),
@@ -223,6 +289,7 @@
         row.appendChild(card({
           small: true,
           label: c.label,
+          lines: cardLines(c),
           hint: c.hint,
           tone: c.tone || tone,
           selected: c.id === picked,
@@ -319,7 +386,8 @@
     [ui.micro, ui.dx].forEach(function (ta) { ta.addEventListener("input", function () { autosize(ta); }); });
 
     ui.result.appendChild(ui.resultTitle);
-    ui.result.appendChild(el("label", { class: "out-label", for: "out-micro", text: "Micro" }));
+    ui.microLabel = el("label", { class: "out-label", for: "out-micro", text: "Micro" });
+    ui.result.appendChild(ui.microLabel);
     ui.result.appendChild(ui.micro);
     ui.result.appendChild(el("label", { class: "out-label", for: "out-dx", text: "Diagnóstico" }));
     ui.result.appendChild(ui.dx);
@@ -341,6 +409,8 @@
     var wasHidden = ui.result.hidden;
     ui.result.hidden = false;
     ui.resultTitle.textContent = t.titulo;
+    // Plantillas solo con diagnóstico (p. ej. Gastritis): `sinMicro: true` oculta el cuadro MICRO.
+    ui.microLabel.hidden = ui.micro.hidden = !!t.sinMicro;
 
     var out = Assembler.assemble(t, state.mods, state.values);
     var prev = state.generated;
@@ -450,8 +520,7 @@
   }
 
   function renderSearch() {
-    if (!state) return;
-    hits = Search.search(Tree.searchEntries(state.organ, state.roots), searchInput.value).slice(0, 8);
+    hits = Search.search(searchIndex, searchInput.value).slice(0, 12);
     active = hits.length ? 0 : -1;
     searchResults.innerHTML = "";
     if (!searchInput.value.trim()) { searchResults.hidden = true; return; }
@@ -461,28 +530,37 @@
       return;
     }
     hits.forEach(function (h, i) {
+      var e = h.entry;
       searchResults.appendChild(el("li", {
         role: "option",
         class: i === active ? "is-active" : null,
-        onmousedown: function (e) { e.preventDefault(); pickHit(i); },
+        onmousedown: function (ev) { ev.preventDefault(); pickHit(i); },
       }, [
-        el("span", { class: "search-cat", text: h.catLabel }),
-        el("span", { text: h.titulo }),
+        el("span", { class: "search-cat", style: "--tone:" + e.organ.theme.tones[0] + ";--item-accent:" + e.organ.theme.accent, text: e.organ.nombre }),
+        el("span", { class: "search-path", text: e.labels.length ? e.labels.join(" › ") : "Órgano" }),
+        h.snippet ? el("span", { class: "search-snippet", text: h.snippet }) : null,
       ]));
     });
   }
 
+  // Abre el órgano del resultado y selecciona su ubicación en el árbol (caso nuevo).
   function pickHit(i) {
     var h = hits[i];
     if (!h) return;
-    state.path = h.path.slice();
-    state.axes = {};
-    state.mods = [];
-    state.values = {};
+    var e = h.entry;
+    pendingNav = { organId: e.organ.id, path: e.path, axes: e.axes || {} };
     searchInput.value = "";
     closeSearch();
     searchInput.blur();
-    renderAll();
+    closeDrawer();
+    if (location.hash === "#/" + e.organ.id) route();
+    else location.hash = "#/" + e.organ.id;
+  }
+
+  // Tras navegar desde el buscador, mostrar la bandeja o el resultado de destino.
+  function revealTarget() {
+    var target = !ui.result.hidden ? ui.result : ui.levels.lastElementChild;
+    if (target) target.scrollIntoView({ block: "nearest" });
   }
 
   searchInput.addEventListener("input", renderSearch);

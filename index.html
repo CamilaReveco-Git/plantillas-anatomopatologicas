@@ -4,34 +4,44 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plantillas Anatomopatológicas</title>
-  <link rel="stylesheet" href="css/styles.css?v=2026-09-27">
+  <link rel="stylesheet" href="css/styles.css?v=2026-09-28c">
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
+      <button type="button" class="menu-btn" id="menu-btn" aria-controls="sidebar" aria-expanded="false" aria-label="Mostrar órganos">☰</button>
       <button type="button" class="back-link" id="back-organs" hidden>← Órganos</button>
       <span class="app-name">PLANTILLAS ANATOMOPATOLÓGICAS</span>
-      <div class="search" id="search-wrap" hidden>
-        <input type="search" id="search" placeholder="Buscar plantilla…" autocomplete="off" aria-label="Buscar plantilla">
+      <div class="search" id="search-wrap">
+        <input type="search" id="search" placeholder="Buscar órgano, diagnóstico o palabra clave..." autocomplete="off" aria-label="Buscar órgano, diagnóstico o palabra clave">
         <ul class="search-results" id="search-results" role="listbox" hidden></ul>
       </div>
     </div>
   </header>
 
-  <main id="app" class="page"></main>
+  <div class="layout">
+    <nav class="sidebar" id="sidebar" aria-label="Órganos">
+      <p class="sidebar-title">Órganos</p>
+      <ul class="sidebar-list" id="sidebar-list"></ul>
+    </nav>
+    <div class="backdrop" id="backdrop" hidden></div>
+    <main id="app" class="page"></main>
+  </div>
 
   <!-- ?v=...: al publicar una versión nueva, cambiar la fecha en TODAS las líneas para que
        los navegadores no mezclen archivos nuevos con copias antiguas en caché. -->
   <!-- Datos: registro de órganos + un archivo por órgano -->
-  <script src="data/organs.js?v=2026-09-27"></script>
-  <script src="data/vesicula.js?v=2026-09-27"></script>
-  <script src="data/estomago.js?v=2026-09-27"></script>
-  <script src="data/apendice.js?v=2026-09-27"></script>
-  <script src="data/tiroides.js?v=2026-09-27"></script>
+  <script src="data/organs.js?v=2026-09-28c"></script>
+  <script src="data/vesicula.js?v=2026-09-28c"></script>
+  <script src="data/estomago.js?v=2026-09-28c"></script>
+  <script src="data/estomago_gastritis.js?v=2026-09-28c"></script>
+  <script src="data/apendice.js?v=2026-09-28c"></script>
+  <script src="data/tiroides.js?v=2026-09-28c"></script>
   <!-- Lógica -->
-  <script src="js/assembler.js?v=2026-09-27"></script>
-  <script src="js/tree.js?v=2026-09-27"></script>
-  <script src="js/search.js?v=2026-09-27"></script>
-  <script src="js/app.js?v=2026-09-27"></script>
+  <script src="js/assembler.js?v=2026-09-28c"></script>
+  <script src="js/tree.js?v=2026-09-28c"></script>
+  <script src="js/search.js?v=2026-09-28c"></script>
+  <script src="js/icons.js?v=2026-09-28c"></script>
+  <script src="js/app.js?v=2026-09-28c"></script>
 </body>
 </html>
