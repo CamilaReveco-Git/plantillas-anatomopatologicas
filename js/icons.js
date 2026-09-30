@@ -44,6 +44,16 @@
       '<path ' + soft + ' d="M26 32c-1-9-4-18-9-20-5-1.6-8 4-8 13 0 11 3.6 19 9 21 4 1.4 7-2 8-6 2 1.4 4 2 6 2s4-.6 6-2c1 4 4 7.4 8 6 5.4-2 9-10 9-21 0-9-3-14.6-8-13-5 2-8 11-9 20-2 1.6-4 2.2-6 2.2s-4-.6-6-2.2z"/>' +
       '</svg>',
 
+    // Piel: corte de piel con epidermis ondulada, un pelo y un nevo en superficie
+    piel: open +
+      '<path ' + soft + ' d="M6 22c5-3.6 9 3.6 14 0s9 3.6 14 0 9 3.6 14 0 7 2.4 10 1.2V52a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4z"/>' +
+      '<path d="M6 30c5-3.6 9 3.6 14 0s9 3.6 14 0 9 3.6 14 0 7 2.4 10 1.2" stroke-opacity=".45"/>' +
+      '<path d="M6 44h52" stroke-opacity=".3"/>' +
+      '<path d="M40 46c-1.4-9 .6-19 5-27 1.6-3 3-6 3.6-10"/>' +
+      '<circle cx="40" cy="48" r="2.8"/>' +
+      '<ellipse cx="18" cy="19.6" rx="5" ry="2.8" fill="currentColor" fill-opacity=".55"/>' +
+      '</svg>',
+
     // Genérico (órganos sin ilustración propia)
     _generico: open +
       '<path ' + soft + ' d="M32 8c13 0 22 9 22 22 0 15-10 26-22 26S10 45 10 30C10 17 19 8 32 8z"/>' +

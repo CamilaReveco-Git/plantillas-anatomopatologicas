@@ -16,6 +16,7 @@ Doble clic en `index.html` (Chrome, Edge, Safari o Firefox).
 | `data/apendice.js` | Textos maestros de Apéndice |
 | `js/assembler.js` | Ensamblador determinista (sustituye, agrega y rellena campos; no redacta) |
 | `data/tiroides.js` | Textos maestros de Tiroides (PAAF / Bethesda) |
+| `data/piel.js` | Textos maestros de Piel (Nevos) |
 | `js/tree.js` | Árbol de navegación (categorías, variantes, secciones, combinaciones) |
 | `js/search.js` | Buscador global: órganos, categorías, botones y texto de micros/diagnósticos (ignora tildes y mayúsculas) |
 | `js/icons.js` | Ilustraciones de los órganos (barra lateral y cabecera); reemplazables sin tocar los datos |
@@ -43,6 +44,7 @@ La interfaz no necesita cambios.
   `sinMicro: true` además oculta el cuadro MICRO (plantillas solo con diagnóstico, p. ej. Gastritis).
 - Una línea `""` en `diagnostico` = línea en blanco.
 - `tone: "#..."` en un nodo del árbol fija el color de su tarjeta.
+- `optionsTitle` en una plantilla cambia el título del bloque de opciones (por defecto "Opciones").
 - Ayudas visuales opcionales de un nodo (no se copian ni forman parte del diagnóstico):
   `lines: [...]` líneas pequeñas bajo el nombre · `summary` hallazgos comunes de un grupo · `crumb` nombre en la ruta.
 

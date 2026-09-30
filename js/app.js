@@ -334,7 +334,7 @@
     ui.options.hidden = false;
 
     if (mods.length) {
-      ui.options.appendChild(el("h2", { class: "tray-title", text: "Opciones" }));
+      ui.options.appendChild(el("h2", { class: "tray-title", text: t.optionsTitle || "Opciones" }));
       var chips = el("div", { class: "chips" });
       mods.forEach(function (m) {
         var on = state.mods.indexOf(m.id) !== -1;
